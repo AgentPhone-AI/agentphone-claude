@@ -22,15 +22,16 @@ npm install agentphone
 ### Initialize Client
 
 ```python
+import os
 from agentphone import AgentPhone
 
-client = AgentPhone(api_key="your-api-key")
+client = AgentPhone(api_key=os.environ["AGENTPHONE_API_KEY"])
 ```
 
 ```typescript
 import { AgentPhoneClient } from "agentphone";
 
-const client = new AgentPhoneClient({ apiKey: "your-api-key" });
+const client = new AgentPhoneClient({ apiKey: process.env.AGENTPHONE_API_KEY! });
 ```
 
 ### Create Agent, Buy Number, Make a Call
@@ -231,7 +232,7 @@ Receives events for all agents unless overridden by an agent-specific webhook:
 ```python
 # Set project webhook
 webhook = client.webhooks.set(url="https://your-server.com/hook")
-print(f"Secret: {webhook.secret}")  # Use to verify signatures
+# webhook.secret is returned — store it securely to verify webhook signatures
 
 # Check delivery stats
 stats = client.webhooks.get_delivery_stats(hours=24)
