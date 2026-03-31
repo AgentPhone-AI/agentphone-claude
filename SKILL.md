@@ -72,7 +72,7 @@ const number = await client.numbers.createNumber({
 const call = await client.calls.createOutboundCall({
   agentId: agent.id,
   toNumber: "+14155551234",
-  systemPrompt: "Ask the caller about their day and be helpful.",
+  systemPrompt: topic, // e.g. "Ask the caller about their day"
 });
 ```
 
@@ -121,7 +121,7 @@ agent = client.agents.create(
     name="Sales Agent",
     description="Handles outbound sales calls",
     voice_mode="hosted",
-    system_prompt="Handle outbound sales calls professionally.",
+    system_prompt=agent_prompt,  # e.g. "Handle outbound sales calls"
     voice="alloy",
 )
 
@@ -134,7 +134,7 @@ const agent = await client.agents.createAgent({
   name: "Sales Agent",
   description: "Handles outbound sales calls",
   voiceMode: "hosted",
-  systemPrompt: "Handle outbound sales calls professionally.",
+  systemPrompt: agentPrompt, // e.g. "Handle outbound sales calls"
   voice: "alloy",
 });
 
@@ -162,7 +162,7 @@ call = client.calls.make_conversation(
 const call = await client.calls.createOutboundCall({
   agentId: agent.id,
   toNumber: "+14155551234",
-  systemPrompt: "Schedule a dentist appointment for next Tuesday at 2pm",
+  systemPrompt: topic, // e.g. "Schedule a dentist appointment"
   initialGreeting: "Hi, I'm calling to schedule an appointment.",
 });
 ```
@@ -217,7 +217,7 @@ client.agents.update(
     agent_id=agent.id,
     name="Updated Bot",
     voice_mode="hosted",
-    system_prompt="Provide helpful customer support.",
+    system_prompt=updated_prompt,  # e.g. "Provide customer support"
     voice="nova",
 )
 ```
@@ -227,7 +227,7 @@ await client.agents.updateAgent({
   agentId: agent.id,
   name: "Updated Bot",
   voiceMode: "hosted",
-  systemPrompt: "Provide helpful customer support.",
+  systemPrompt: updatedPrompt, // e.g. "Provide customer support"
   voice: "nova",
 });
 ```
@@ -306,6 +306,6 @@ Always use E.164 format for phone numbers (e.g., `+14155551234`). If a user give
 
 ## Additional Resources
 
-- [API Reference](references/api-reference.md) - Complete MCP tool signatures
+- [API Reference](https://docs.agentphone.to/api-reference) - Complete API and MCP tool signatures
 - [Official Docs](https://docs.agentphone.to)
 - [Console](https://agentphone.to)
