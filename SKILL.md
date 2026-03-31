@@ -72,7 +72,7 @@ const number = await client.numbers.createNumber({
 const call = await client.calls.createOutboundCall({
   agentId: agent.id,
   toNumber: "+14155551234",
-  systemPrompt: topic, // e.g. "Ask the caller about their day"
+  topic: "Ask the caller about their day",
 });
 ```
 
@@ -121,7 +121,7 @@ agent = client.agents.create(
     name="Sales Agent",
     description="Handles outbound sales calls",
     voice_mode="hosted",
-    system_prompt=agent_prompt,  # e.g. "Handle outbound sales calls"
+    topic="Handle outbound sales calls",
     voice="alloy",
 )
 
@@ -134,7 +134,7 @@ const agent = await client.agents.createAgent({
   name: "Sales Agent",
   description: "Handles outbound sales calls",
   voiceMode: "hosted",
-  systemPrompt: agentPrompt, // e.g. "Handle outbound sales calls"
+  topic: "Handle outbound sales calls",
   voice: "alloy",
 });
 
@@ -162,7 +162,7 @@ call = client.calls.make_conversation(
 const call = await client.calls.createOutboundCall({
   agentId: agent.id,
   toNumber: "+14155551234",
-  systemPrompt: topic, // e.g. "Schedule a dentist appointment"
+  topic: "Schedule a dentist appointment for next Tuesday at 2pm",
   initialGreeting: "Hi, I'm calling to schedule an appointment.",
 });
 ```
@@ -217,7 +217,7 @@ client.agents.update(
     agent_id=agent.id,
     name="Updated Bot",
     voice_mode="hosted",
-    system_prompt=updated_prompt,  # e.g. "Provide customer support"
+    topic="Provide customer support",
     voice="nova",
 )
 ```
@@ -227,7 +227,7 @@ await client.agents.updateAgent({
   agentId: agent.id,
   name: "Updated Bot",
   voiceMode: "hosted",
-  systemPrompt: updatedPrompt, // e.g. "Provide customer support"
+  topic: "Provide customer support",
   voice: "nova",
 });
 ```
@@ -302,7 +302,7 @@ Always use E.164 format for phone numbers (e.g., `+14155551234`). If a user give
 ### Voice Modes
 
 - **`webhook`** (default): Call transcripts are forwarded to your webhook URL for custom handling
-- **`hosted`**: Built-in LLM handles the conversation autonomously using the agent's `system_prompt`
+- **`hosted`**: Built-in LLM handles the conversation autonomously using the agent's topic/prompt
 
 ## Additional Resources
 
