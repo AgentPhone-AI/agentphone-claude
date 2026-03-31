@@ -1,14 +1,13 @@
 # AgentPhone Skill
 
-This is a Claude Code skill that provides telephony capabilities through the AgentPhone MCP server.
+This skill provides telephony capabilities through the AgentPhone MCP server.
 
-## Behavior Guidelines
+## Usage Notes
 
-- Always confirm with the user before making outbound calls or sending SMS
-- Always confirm before releasing (deleting) a phone number — this is irreversible
-- Always confirm before deleting an agent — this cannot be undone
-- When a phone number is provided without a country code, assume US (+1)
-- After placing a call, remind the user they can check the transcript later
-- If no agents exist, guide the user to create one before attempting calls
-- Use `account_overview` first when the user wants to see their current state
-- Use `list_voices` to show available voices before creating/updating agents with voice settings
+- Outbound calls and SMS are billable actions — confirm before executing
+- Releasing a phone number is irreversible (the number returns to the carrier pool)
+- Deleting an agent cannot be undone
+- Phone numbers without a country code default to US (+1)
+- Call transcripts are available after a call completes
+- The `account_overview` tool provides a quick snapshot of the current account state
+- The `list_voices` tool shows available voice options for agent configuration

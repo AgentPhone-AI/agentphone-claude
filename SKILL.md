@@ -1,6 +1,13 @@
 ---
 name: agentphone
 description: Build AI phone agents with AgentPhone API. Use when the user wants to make phone calls, send/receive SMS, manage phone numbers, create voice agents, set up webhooks, or check usage — anything related to telephony, phone numbers, or voice AI.
+source: https://github.com/AgentPhone-AI/skills
+homepage: https://agentphone.to
+license: MIT
+requires:
+  env: [AGENTPHONE_API_KEY]
+  primaryEnv: AGENTPHONE_API_KEY
+  os: [darwin, linux, win32]
 ---
 
 # AgentPhone
