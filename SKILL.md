@@ -1,6 +1,6 @@
 ---
 name: agentphone
-version: 0.2.0
+version: 0.3.0
 description: Build AI phone agents with AgentPhone API. Use when the user wants to make phone calls, send/receive SMS, manage phone numbers, create voice agents, set up webhooks, or check usage — anything related to telephony, phone numbers, or voice AI.
 homepage: https://agentphone.to
 docs: https://docs.agentphone.to
@@ -489,67 +489,461 @@ curl -X DELETE https://api.agentphone.to/v1/numbers/NUMBER_ID \
 
 ---
 
-### Calls
+### Voice Calls
 
-#### Make an Outbound Call
+Voice calls are real-time conversations through your agent's phone numbers. Calls can be inbound (received) or outbound (initiated via API). Each call includes metadata like duration, status, and transcript.
 
-Place a phone call where the AI holds an autonomous conversation. The agent must have a phone number attached.
+How calls are handled depends on your agent's **voice mode**:
 
-```bash
-curl -X POST https://api.agentphone.to/v1/calls \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "agentId": "agent_abc123",
-    "toNumber": "+14155559999",
-    "systemPrompt": "Schedule a dentist appointment for next Tuesday at 2pm.",
-    "initialGreeting": "Hi, I am calling to schedule an appointment."
-  }'
+- **`voiceMode: "webhook"`** (default) — Caller speech is transcribed and sent to your webhook as `agent.message` events. Your server controls every response using any LLM, RAG, or custom logic.
+- **`voiceMode: "hosted"`** — Calls are handled end-to-end by a built-in LLM using your `systemPrompt`. No webhook or server needed.
+
+Switch modes at any time via `PATCH /v1/agents/:id`. The backend automatically re-provisions voice infrastructure and rebinds phone numbers with no downtime.
+
+> **Note:** SMS is always webhook-based regardless of voice mode.
+
+#### Call flow (webhook mode)
+
+When `voiceMode` is `"webhook"`:
+
+1. **Caller dials your number** — The voice engine answers and begins streaming audio.
+2. **Caller speaks** — Streaming STT transcribes in real-time and detects end of speech.
+3. **Transcript is sent to your webhook** — We POST the transcript to your webhook with `event: "agent.message"` and `channel: "voice"`, including `recentHistory` for context.
+4. **Your server responds** — You process the transcript (e.g., send to your LLM) and return a response. We strongly recommend streaming NDJSON — TTS starts speaking on the first chunk.
+5. **TTS speaks the response** — Each NDJSON chunk is spoken with sub-second latency. No waiting for the full response.
+6. **Conversation continues** — The caller can interrupt at any time (barge-in). The cycle repeats naturally.
+
+#### Call flow (built-in AI mode)
+
+When `voiceMode` is `"hosted"`:
+
+1. **Caller dials your number** — The AI answers with your `beginMessage` (e.g., "Hello! How can I help?").
+2. **Caller speaks** — Streaming STT transcribes in real-time.
+3. **Built-in LLM generates a response** — The LLM uses your `systemPrompt` to generate a contextual response.
+4. **TTS speaks the response** — Streaming TTS speaks the response with sub-second latency.
+5. **Conversation continues** — No server or webhook involved — the platform handles everything.
+
+#### Voice capabilities
+
+Both modes share the same low-latency engine:
+
+| Capability          | Description                                                           |
+| ------------------- | --------------------------------------------------------------------- |
+| Streaming STT       | Real-time speech-to-text transcription                                |
+| Streaming TTS       | Sub-second text-to-speech synthesis                                   |
+| Barge-in            | Caller can interrupt the agent mid-sentence                           |
+| Backchanneling      | Natural conversational cues ("uh-huh", "right")                       |
+| Turn detection      | Smart end-of-speech detection                                         |
+| Streaming responses | Return NDJSON to start TTS on the first chunk                         |
+| DTMF digit press    | Press keypad digits to navigate IVR menus and automated phone systems |
+| Call recording       | Optional add-on — automatically records calls and provides audio URLs |
+
+#### Webhook response format
+
+For voice webhooks, your server must return a JSON object (`{...}`) telling the agent what to say. Non-object responses (numbers, strings, arrays) are ignored and the caller hears silence.
+
+##### Streaming response (recommended)
+
+Return `Content-Type: application/x-ndjson` with newline-delimited JSON chunks. TTS starts speaking on the very first chunk while your server continues processing.
+
+```
+{"text": "Let me check that for you.", "interim": true}
+{"text": "Your order #4521 shipped yesterday via FedEx."}
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `agentId` | `string` | Yes | Agent ID (must have a phone number attached) |
-| `toNumber` | `string` | Yes | Destination number in E.164 format |
-| `systemPrompt` | `string` | No | Override the agent's system prompt for this call |
-| `initialGreeting` | `string` | No | Opening message spoken by the agent |
+Mark interim chunks with `"interim": true` — the final chunk (without `interim`) closes the turn. Use this for tool calls, LLM token forwarding, or any time your response takes more than ~1 second.
+
+##### Simple response
+
+Return a single JSON object for instant replies where no processing delay is expected.
+
+```json
+{ "text": "How can I help you?" }
+```
+
+##### Response fields
+
+| Field     | Type    | Description                                                                                                                                               |
+| --------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `text`    | string  | Text to speak to the caller                                                                                                                               |
+| `hangup`  | boolean | Set to `true` to end the call after speaking                                                                                                              |
+| `action`  | string  | `"transfer"` to cold-transfer the call (requires `transferNumber` on the agent), `"hangup"` to end it                                                     |
+| `digits`  | string  | DTMF digits to press on the keypad (e.g. `"1"`, `"123"`, `"1*#"`). Used to navigate IVR menus and automated phone systems. Aliases: `press_digit`, `dtmf` |
+| `interim` | boolean | NDJSON only — marks a chunk as interim (TTS speaks it but the turn stays open)                                                                            |
+
+> **Warning: Webhook timeout** — Voice webhook requests have a **30-second default timeout** (configurable from 5–120 seconds per webhook via the `timeout` field). If your server doesn't start responding in time, the request is cancelled and the caller hears silence for that turn. This is especially important when your webhook calls external APIs or runs LLM tool calls — always stream an interim chunk immediately so the caller hears something while you process.
+
+#### Example: streaming handler (Python / FastAPI)
+
+```python
+from fastapi.responses import StreamingResponse
+import json, openai
+
+@app.post('/webhook')
+async def handle_voice(payload: dict):
+    if payload['channel'] != 'voice':
+        return Response(status_code=200)
+
+    history = payload.get('recentHistory', [])
+    context = "\n".join([
+        f"{'Customer' if h['direction'] == 'inbound' else 'Agent'}: {h['content']}"
+        for h in history
+    ])
+
+    async def generate():
+        yield json.dumps({"text": "One moment, let me check.", "interim": True}) + "\n"
+
+        stream = openai.chat.completions.create(
+            model="gpt-4",
+            stream=True,
+            messages=[
+                {"role": "system", "content": "You are a helpful phone agent."},
+                {"role": "user", "content": f"Conversation:\n{context}\n\nRespond."}
+            ]
+        )
+        full = ""
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content or ""
+            full += delta
+        yield json.dumps({"text": full}) + "\n"
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
+```
+
+#### Example: streaming handler (Node.js / Express)
+
+```javascript
+const OpenAI = require('openai');
+const openai = new OpenAI();
+
+app.post('/webhook', express.json(), async (req, res) => {
+  if (req.body.channel !== 'voice') return res.status(200).send('OK');
+
+  const history = req.body.recentHistory || [];
+  const context = history
+    .map(h => `${h.direction === 'inbound' ? 'Customer' : 'Agent'}: ${h.content}`)
+    .join('\n');
+
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.write(JSON.stringify({ text: 'One moment, let me check.', interim: true }) + '\n');
+
+  const stream = await openai.chat.completions.create({
+    model: 'gpt-4',
+    stream: true,
+    messages: [
+      { role: 'system', content: 'You are a helpful phone agent.' },
+      { role: 'user', content: `Conversation:\n${context}\n\nRespond.` }
+    ]
+  });
+
+  let full = '';
+  for await (const chunk of stream) {
+    full += chunk.choices[0]?.delta?.content || '';
+  }
+  res.write(JSON.stringify({ text: full }) + '\n');
+  res.end();
+});
+```
+
+#### Example: tool-calling handler (Python / Flask)
+
+When your agent needs to call external APIs (databases, calendars, CRM, etc.) during a voice call, always stream an interim filler response first. This prevents the caller from hearing silence while your tools run.
+
+The pattern is: **stream an interim acknowledgement immediately → run your tools → stream the final answer**.
+
+```python
+from flask import Flask, request, Response
+import json, anthropic, os
+
+app = Flask(__name__)
+client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+
+TOOLS = [
+    {
+        "name": "get_todays_calendar",
+        "description": "Get the user's calendar events for today.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "search_orders",
+        "description": "Look up a customer's recent orders.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    },
+]
+
+TOOL_HANDLERS = {
+    "get_todays_calendar": lambda args: fetch_calendar_events(),
+    "search_orders": lambda args: search_order_db(args["query"]),
+}
+
+
+def run_tool_call(user_message: str, history: list) -> str:
+    """Run Claude with tools and return the final text response."""
+    messages = [{"role": "user", "content": user_message}]
+
+    for _ in range(5):  # max tool-call iterations
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=256,
+            system="You are a helpful phone assistant. Keep responses to 2-3 sentences.",
+            tools=TOOLS,
+            messages=messages,
+        )
+
+        if response.stop_reason == "tool_use":
+            messages.append({"role": "assistant", "content": response.content})
+            tool_results = []
+            for block in response.content:
+                if block.type == "tool_use":
+                    handler = TOOL_HANDLERS.get(block.name)
+                    result = handler(block.input) if handler else "Unknown tool"
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result,
+                    })
+            messages.append({"role": "user", "content": tool_results})
+        else:
+            return " ".join(b.text for b in response.content if hasattr(b, "text"))
+
+    return "Sorry, I'm having trouble processing that."
+
+
+@app.post("/webhook")
+def webhook():
+    payload = request.json
+    if payload.get("channel") != "voice":
+        return "OK", 200
+
+    transcript = payload["data"].get("transcript", "")
+    history = payload.get("recentHistory", [])
+
+    def generate():
+        # Immediately tell the caller we're working on it
+        yield json.dumps({"text": "Let me check on that.", "interim": True}) + "\n"
+
+        # Now run the slow tool calls (LLM + external APIs)
+        try:
+            answer = run_tool_call(transcript, history)
+        except Exception:
+            answer = "Sorry, I ran into a problem. Could you try again?"
+
+        yield json.dumps({"text": answer}) + "\n"
+
+    return Response(generate(), content_type="application/x-ndjson")
+```
+
+#### Example: tool-calling handler (Node.js / Express)
+
+```javascript
+const express = require("express");
+const Anthropic = require("@anthropic-ai/sdk");
+
+const app = express();
+app.use(express.json());
+
+const client = new Anthropic();
+
+const tools = [
+  {
+    name: "get_todays_calendar",
+    description: "Get the user's calendar events for today.",
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "search_orders",
+    description: "Look up a customer's recent orders.",
+    input_schema: {
+      type: "object",
+      properties: { query: { type: "string" } },
+      required: ["query"],
+    },
+  },
+];
+
+const toolHandlers = {
+  get_todays_calendar: (args) => fetchCalendarEvents(),
+  search_orders: (args) => searchOrderDb(args.query),
+};
+
+async function runToolCall(userMessage) {
+  const messages = [{ role: "user", content: userMessage }];
+
+  for (let i = 0; i < 5; i++) {
+    const response = await client.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 256,
+      system: "You are a helpful phone assistant. Keep responses to 2-3 sentences.",
+      tools,
+      messages,
+    });
+
+    if (response.stop_reason === "tool_use") {
+      messages.push({ role: "assistant", content: response.content });
+      const toolResults = [];
+      for (const block of response.content) {
+        if (block.type === "tool_use") {
+          const handler = toolHandlers[block.name];
+          const result = handler ? await handler(block.input) : "Unknown tool";
+          toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
+        }
+      }
+      messages.push({ role: "user", content: toolResults });
+    } else {
+      return response.content
+        .filter((b) => b.type === "text")
+        .map((b) => b.text)
+        .join(" ");
+    }
+  }
+  return "Sorry, I'm having trouble processing that.";
+}
+
+app.post("/webhook", async (req, res) => {
+  if (req.body.channel !== "voice") return res.status(200).send("OK");
+
+  const transcript = req.body.data?.transcript || "";
+
+  res.setHeader("Content-Type", "application/x-ndjson");
+
+  // Immediately tell the caller we're working on it
+  res.write(JSON.stringify({ text: "Let me check on that.", interim: true }) + "\n");
+
+  // Now run the slow tool calls (LLM + external APIs)
+  try {
+    const answer = await runToolCall(transcript);
+    res.write(JSON.stringify({ text: answer }) + "\n");
+  } catch (err) {
+    res.write(JSON.stringify({ text: "Sorry, I ran into a problem." }) + "\n");
+  }
+  res.end();
+});
+
+app.listen(3000);
+```
+
+> **Tip: Why interim chunks matter for tool calls** — Without the interim chunk, the caller hears dead silence while your LLM decides which tool to call, the external API responds, and the LLM summarises the result. With streaming, they hear "Let me check on that" within milliseconds — just like a human assistant would.
+
+---
+
+#### Troubleshooting voice calls
+
+##### Caller hears silence after speaking
+
+**Your webhook is too slow or not responding.** Voice webhooks have a 30-second default timeout (configurable per webhook from 5–120 seconds). If your server doesn't respond in time, the turn is dropped and the caller hears nothing.
+
+**Fix:** Always stream an interim NDJSON chunk immediately (e.g. `{"text": "One moment.", "interim": true}`) before doing any slow work. This buys you time while keeping the caller engaged.
+
+Common causes:
+- LLM tool calls that take too long (external API latency + LLM processing)
+- Cold starts on serverless platforms (Lambda, Cloud Functions)
+- Webhook URL is unreachable or returning errors
+
+##### Caller hears silence after the greeting
+
+**Your webhook isn't configured or isn't returning a valid JSON object.** Voice responses must be a JSON object (`{...}`). Non-object responses (strings, arrays, numbers) are ignored.
+
+**Fix:** Verify your webhook is returning `{"text": "..."}`. Use `POST /v1/webhooks/test` to confirm your endpoint is reachable and responding correctly.
+
+##### Response is cut off or sounds garbled
+
+**You're sending the entire response as a single large chunk.** Long responses in a single chunk can cause TTS delays.
+
+**Fix:** Use NDJSON streaming and break responses into natural sentences. Send each sentence as an interim chunk so TTS can start speaking immediately.
+
+##### Agent speaks XML or code artifacts
+
+**Your LLM is including tool-call markup in its response.** Some LLMs emit `<function_call>` or similar tags.
+
+**Fix:** Strip non-speech content from your LLM output before returning it. AgentPhone removes common patterns automatically, but your webhook should clean responses to be safe.
+
+##### Webhook works for SMS but not voice
+
+**You're returning a `200 OK` with no body, or a non-JSON response for voice.** SMS webhooks only need a `200` status — voice webhooks must return a JSON object with a `text` field.
+
+**Fix:** Check the `channel` field in the webhook payload. For `"voice"`, always return `{"text": "..."}`. For `"sms"`, a `200 OK` is sufficient.
+
+---
+
+#### Call recording
+
+Call recording is an optional add-on that saves audio recordings of your voice calls. When enabled, completed calls include a `recordingUrl` field with a link to the audio file.
+
+| Field                | Type           | Description                                                                                                                               |
+| -------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `recordingUrl`       | string or null | URL to the call recording audio file. Only populated when the recording add-on is enabled.                                                |
+| `recordingAvailable` | boolean        | Whether a recording exists for this call. Can be `true` even when `recordingUrl` is null (recording exists but the add-on is not active). |
+
+Enable recording from the **Billing** page in the dashboard. See [Usage & Billing](https://docs.agentphone.to/documentation/guides/usage#call-recording-add-on) for pricing.
+
+> **Note:** Recordings are captured automatically for all calls while the add-on is active. If you disable the add-on, existing recordings are preserved but `recordingUrl` will be null until you re-enable it.
+
+---
+
+#### List All Calls
+
+List all calls for this project.
+
+```
+GET /v1/calls
+```
+
+**Query parameters:**
+
+| Parameter   | Type    | Required | Default | Description                                                 |
+| ----------- | ------- | -------- | ------- | ----------------------------------------------------------- |
+| `limit`     | integer | No       | 20      | Number of results to return (max 100)                       |
+| `offset`    | integer | No       | 0       | Number of results to skip (min 0)                           |
+| `status`    | string  | No       | —       | Filter by status: `completed`, `in-progress`, `failed`      |
+| `direction` | string  | No       | —       | Filter by direction: `inbound`, `outbound`, `web`           |
+| `search`    | string  | No       | —       | Search by phone number (matches `fromNumber` or `toNumber`) |
+
+```bash
+curl -X GET "https://api.agentphone.to/v1/calls?limit=10&offset=0" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
 
 **Response:**
 
 ```json
 {
-  "id": "call_def456",
-  "agentId": "agent_abc123",
-  "fromNumber": "+14155551234",
-  "toNumber": "+14155559999",
-  "direction": "outbound",
-  "status": "in-progress",
-  "startedAt": "2025-01-15T10:32:00.000Z"
+  "data": [
+    {
+      "id": "call_ghi012",
+      "agentId": "agt_abc123",
+      "phoneNumberId": "num_xyz789",
+      "phoneNumber": "+15551234567",
+      "fromNumber": "+15559876543",
+      "toNumber": "+15551234567",
+      "direction": "inbound",
+      "status": "completed",
+      "startedAt": "2025-01-15T14:00:00Z",
+      "endedAt": "2025-01-15T14:05:30Z",
+      "durationSeconds": 330,
+      "lastTranscriptSnippet": "Thank you for calling, goodbye!",
+      "recordingUrl": "https://api.twilio.com/2010-04-01/.../Recordings/RE...",
+      "recordingAvailable": true
+    }
+  ],
+  "hasMore": false,
+  "total": 1
 }
-```
-
-#### List All Calls
-
-```bash
-curl "https://api.agentphone.to/v1/calls?limit=20" \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `limit` | `number` | No | 20 | Max results (1-100) |
-
-#### List Calls for a Number
-
-```bash
-curl "https://api.agentphone.to/v1/numbers/NUMBER_ID/calls?limit=20" \
-  -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
 #### Get Call Details
 
+Get details of a specific call, including its full transcript.
+
+```
+GET /v1/calls/{call_id}
+```
+
 ```bash
-curl https://api.agentphone.to/v1/calls/CALL_ID \
+curl -X GET "https://api.agentphone.to/v1/calls/call_ghi012" \
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
@@ -557,24 +951,79 @@ curl https://api.agentphone.to/v1/calls/CALL_ID \
 
 ```json
 {
-  "id": "call_def456",
-  "agentId": "agent_abc123",
-  "fromNumber": "+14155551234",
-  "toNumber": "+14155559999",
-  "direction": "outbound",
+  "id": "call_ghi012",
+  "agentId": "agt_abc123",
+  "phoneNumberId": "num_xyz789",
+  "phoneNumber": "+15551234567",
+  "fromNumber": "+15559876543",
+  "toNumber": "+15551234567",
+  "direction": "inbound",
   "status": "completed",
-  "startedAt": "2025-01-15T10:32:00.000Z",
-  "endedAt": "2025-01-15T10:35:00.000Z",
+  "startedAt": "2025-01-15T14:00:00Z",
+  "endedAt": "2025-01-15T14:05:30Z",
+  "durationSeconds": 330,
+  "recordingUrl": "https://api.twilio.com/2010-04-01/.../Recordings/RE...",
+  "recordingAvailable": true,
   "transcripts": [
     {
-      "id": "tx_001",
-      "transcript": "Hi, I am calling to schedule an appointment.",
-      "response": null,
+      "id": "tr_001",
+      "transcript": "Hello! Thanks for calling Acme Corp. How can I help you today?",
       "confidence": 0.95,
-      "createdAt": "2025-01-15T10:32:01.000Z"
+      "response": "Sure! Could you please provide your order number?",
+      "createdAt": "2025-01-15T14:00:05Z"
+    },
+    {
+      "id": "tr_002",
+      "transcript": "Hi, I'd like to check the status of my order.",
+      "confidence": 0.92,
+      "response": "Of course! Let me look that up for you.",
+      "createdAt": "2025-01-15T14:00:15Z"
     }
   ]
 }
+```
+
+#### Create Outbound Call
+
+Initiate an outbound voice call from one of your agent's phone numbers. The agent's first assigned phone number is used as the caller ID.
+
+```
+POST /v1/calls
+```
+
+**Request body:**
+
+| Field             | Type           | Required | Description                                                                                    |
+| ----------------- | -------------- | -------- | ---------------------------------------------------------------------------------------------- |
+| `agentId`         | string         | Yes      | The agent that will handle the call. Its first assigned phone number is used as caller ID.     |
+| `toNumber`        | string         | Yes      | The phone number to call (E.164 format, e.g., `"+15559876543"`)                                |
+| `initialGreeting` | string or null | No       | Optional greeting to speak when the recipient answers                                          |
+| `voice`           | string         | No       | Voice to use for speaking (default: `"Polly.Amy"`)                                             |
+| `systemPrompt`    | string or null | No       | When provided, uses a built-in LLM for the conversation instead of forwarding to your webhook. |
+
+```bash
+curl -X POST "https://api.agentphone.to/v1/calls" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agentId": "agt_abc123",
+    "toNumber": "+15559876543",
+    "initialGreeting": "Hi, this is Acme Corp calling about your recent order.",
+    "systemPrompt": "You are a friendly support agent from Acme Corp."
+  }'
+```
+
+#### List Calls for a Number
+
+List all calls associated with a specific phone number.
+
+```
+GET /v1/numbers/{number_id}/calls
+```
+
+```bash
+curl -X GET "https://api.agentphone.to/v1/numbers/num_xyz789/calls?limit=10" \
+  -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
 #### Get Call Transcript
@@ -820,18 +1269,40 @@ curl "https://api.agentphone.to/v1/usage/monthly?months=3" \
 
 ## Webhook Events
 
-When a call or message comes in, AgentPhone sends an HTTP POST to your webhook URL with the event payload. Events include:
+When a call or message comes in, AgentPhone sends an HTTP POST to your webhook URL with the event payload.
+
+### Event types
 
 | Event | Description |
 |-------|-------------|
 | `call.started` | An inbound call has started |
 | `call.ended` | A call has ended (includes transcript) |
+| `agent.message` | Real-time voice transcript or SMS received — check `channel` field |
 | `message.received` | An SMS was received on your number |
 | `message.sent` | An outbound SMS was delivered |
 
-The webhook payload includes the full call or message object, plus recent conversation context (controlled by `contextLimit`).
+### Voice vs SMS webhooks
 
-**Verifying signatures:** Each webhook request includes a signature header. Use the `secret` from your webhook setup to verify the payload hasn't been tampered with.
+The `channel` field in the webhook payload tells you the event source:
+
+- **`channel: "voice"`** — Real-time voice call event. Your response **must** be a JSON object with a `text` field (e.g. `{"text": "Hello!"}`). Return `Content-Type: application/x-ndjson` for streaming responses. Non-object responses are ignored and the caller hears silence.
+- **`channel: "sms"`** — SMS message event. A `200 OK` status is sufficient — no response body needed.
+
+### Payload structure
+
+The webhook payload includes:
+- The full call or message object in the `data` field
+- Recent conversation context in `recentHistory` (controlled by `contextLimit`)
+- The `channel` field (`"voice"` or `"sms"`)
+- The `event` field (e.g. `"agent.message"`)
+
+### Webhook timeout
+
+Voice webhooks have a **30-second default timeout** (configurable from 5–120 seconds via the `timeout` field when creating or updating a webhook). If your server doesn't start responding in time, the caller hears silence for that turn. Always stream an interim NDJSON chunk immediately for voice webhooks.
+
+### Verifying signatures
+
+Each webhook request includes a signature header. Use the `secret` from your webhook setup to verify the payload hasn't been tampered with.
 
 ---
 
