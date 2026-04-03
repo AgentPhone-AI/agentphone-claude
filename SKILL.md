@@ -1369,6 +1369,6 @@ These are starting points. Having your own phone number means your agent can do 
 
 ## Additional Resources
 
-- [API Reference](references/api-reference.md) — Complete MCP tool signatures (26 tools)
+- [API Reference](https://docs.agentphone.to/api-reference)
 - [Official Docs](https://docs.agentphone.to)
 - [Console](https://agentphone.to)
