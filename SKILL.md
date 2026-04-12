@@ -1,6 +1,6 @@
 ---
 name: agentphone
-version: 0.3.0
+version: 0.4.0
 description: Build AI phone agents with AgentPhone API. Use when the user wants to make phone calls, send/receive SMS, manage phone numbers, create voice agents, set up webhooks, or check usage — anything related to telephony, phone numbers, or voice AI.
 homepage: https://agentphone.to
 docs: https://docs.agentphone.to
@@ -220,9 +220,8 @@ Always use **E.164 format** for phone numbers: `+` followed by country code and 
 
 ### Confirm Before Destructive Actions
 
-- **Releasing a phone number** is irreversible — the number returns to the carrier pool and you cannot get it back
 - **Deleting an agent** keeps its phone numbers but unassigns them
-- Always confirm with the user before these operations
+- Always confirm with the user before destructive operations
 
 ### Best Practices
 
@@ -401,24 +400,6 @@ curl -X DELETE https://api.agentphone.to/v1/agents/AGENT_ID/numbers/NUMBER_ID \
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
-#### List Agent Conversations
-
-Get SMS conversations for a specific agent.
-
-```bash
-curl "https://api.agentphone.to/v1/agents/AGENT_ID/conversations?limit=20" \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
-
-#### List Agent Calls
-
-Get calls for a specific agent.
-
-```bash
-curl "https://api.agentphone.to/v1/agents/AGENT_ID/calls?limit=20" \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
-
 #### List Available Voices
 
 See all available voice options for agents. Use the `voice_id` when creating or updating an agent.
@@ -502,15 +483,6 @@ curl "https://api.agentphone.to/v1/numbers?limit=20" \
   ],
   "total": 1
 }
-```
-
-#### Release a Phone Number
-
-**Irreversible** — the number returns to the carrier pool and you cannot get it back. Always confirm with the user before releasing.
-
-```bash
-curl -X DELETE https://api.agentphone.to/v1/numbers/NUMBER_ID \
-  -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
 ---
@@ -1038,6 +1010,8 @@ GET /v1/calls
 | `status`    | string  | No       | —       | Filter by status: `completed`, `in-progress`, `failed`      |
 | `direction` | string  | No       | —       | Filter by direction: `inbound`, `outbound`, `web`           |
 | `search`    | string  | No       | —       | Search by phone number (matches `fromNumber` or `toNumber`) |
+| `agent_id`  | string  | No       | —       | Filter calls by a specific agent |
+| `number_id` | string  | No       | —       | Filter calls by a specific phone number |
 
 ```bash
 curl -X GET "https://api.agentphone.to/v1/calls?limit=10&offset=0" \
@@ -1148,19 +1122,6 @@ curl -X POST "https://api.agentphone.to/v1/calls" \
     "initialGreeting": "Hi, this is Acme Corp calling about your recent order.",
     "systemPrompt": "You are a friendly support agent from Acme Corp."
   }'
-```
-
-#### List Calls for a Number
-
-List all calls associated with a specific phone number.
-
-```
-GET /v1/numbers/{number_id}/calls
-```
-
-```bash
-curl -X GET "https://api.agentphone.to/v1/numbers/num_xyz789/calls?limit=10" \
-  -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
 #### Get Call Transcript
@@ -1301,6 +1262,7 @@ curl "https://api.agentphone.to/v1/conversations?limit=20" \
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `limit` | `number` | No | 20 | Max results (1-100) |
+| `agent_id` | `string` | No | — | Filter conversations by a specific agent |
 
 **Response:**
 
@@ -1356,9 +1318,9 @@ curl -X PATCH https://api.agentphone.to/v1/conversations/CONVERSATION_ID \
 
 ---
 
-### Webhooks (Project-Level)
+### Webhooks
 
-The project-level webhook receives events for **all agents** unless overridden by an agent-specific webhook.
+The project-level webhook receives events for **all agents** unless overridden by an agent-specific webhook. Pass `agent_id` to any webhook endpoint to manage per-agent webhooks instead.
 
 #### Set Webhook
 
@@ -1432,55 +1394,22 @@ curl -X POST https://api.agentphone.to/v1/webhooks/test \
 
 ---
 
-### Webhooks (Per-Agent)
-
-Route a specific agent's events to a different URL. When set, the agent's events go here instead of the project-level webhook.
-
-#### Set Agent Webhook
-
-```bash
-curl -X POST https://api.agentphone.to/v1/agents/AGENT_ID/webhook \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://your-server.com/agent-webhook",
-    "contextLimit": 5
-  }'
-```
-
-#### Get Agent Webhook
-
-```bash
-curl https://api.agentphone.to/v1/agents/AGENT_ID/webhook \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
-
-#### Delete Agent Webhook
-
-Events fall back to the project-level webhook.
-
-```bash
-curl -X DELETE https://api.agentphone.to/v1/agents/AGENT_ID/webhook \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
-
-#### Test Agent Webhook
-
-```bash
-curl -X POST https://api.agentphone.to/v1/agents/AGENT_ID/webhook/test \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
-
----
-
 ### Usage & Limits
+
+Get account usage stats. By default returns a summary with plan limits, quotas, and message/call volume. Use `breakdown=daily` or `breakdown=monthly` for time-series data.
 
 ```bash
 curl https://api.agentphone.to/v1/usage \
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
-**Response:**
+| Parameter   | Type   | Required | Default   | Description |
+|-------------|--------|----------|-----------|-------------|
+| `breakdown` | string | No       | `summary` | `summary` for plan limits and totals, `daily` for per-day breakdown, `monthly` for per-month breakdown |
+| `days`      | number | No       | 30        | Number of days to look back (only used with `breakdown=daily`) |
+| `months`    | number | No       | 12        | Number of months to look back (only used with `breakdown=monthly`) |
+
+**Response (summary):**
 
 ```json
 {
@@ -1492,20 +1421,6 @@ curl https://api.agentphone.to/v1/usage \
     "minutesLast30d": 67
   }
 }
-```
-
-#### Daily Breakdown
-
-```bash
-curl "https://api.agentphone.to/v1/usage/daily?days=7" \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
-
-#### Monthly Breakdown
-
-```bash
-curl "https://api.agentphone.to/v1/usage/monthly?months=3" \
-  -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
 ---
