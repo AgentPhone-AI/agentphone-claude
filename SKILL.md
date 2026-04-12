@@ -31,14 +31,15 @@ AgentPhone lets you create AI agents that can make and receive phone calls and S
 
 ```
 Account
-└── Agent (AI persona — owns numbers, handles calls/SMS)
-    ├── Phone Number (attached to agent)
-    │   ├── Call (inbound/outbound voice)
-    │   │   └── Transcript (call recording text)
-    │   └── Message (SMS)
-    │       └── Conversation (threaded SMS exchange)
-    └── Webhook (per-agent event delivery)
-Webhook (project-level event delivery)
+├── Agent (AI persona — owns numbers, handles calls/SMS)
+│   ├── Phone Number (attached to agent)
+│   │   ├── Call (inbound/outbound voice)
+│   │   │   └── Transcript (call recording text)
+│   │   └── Message (SMS)
+│   │       └── Conversation (threaded SMS exchange)
+│   └── Webhook (per-agent event delivery)
+├── Contact (address book entry — name, phone, email, notes)
+└── Webhook (project-level event delivery)
 ```
 
 ### Voice Modes
@@ -145,7 +146,32 @@ curl -X POST https://api.agentphone.to/v1/calls \
 
 The AI will hold the entire conversation autonomously based on your prompt. Check the transcript after the call ends.
 
-### Step 5: Check the Transcript
+### Step 5: Send an SMS
+
+```bash
+curl -X POST https://api.agentphone.to/v1/messages \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_id": "agent_abc123",
+    "to_number": "+14155559999",
+    "body": "Hi! Your appointment is confirmed for Tuesday at 2pm."
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "id": "msg_abc123",
+  "status": "sent",
+  "channel": "sms",
+  "from_number": "+14155551234",
+  "to_number": "+14155559999"
+}
+```
+
+### Step 6: Check the Transcript
 
 ```bash
 curl https://api.agentphone.to/v1/calls/call_def456/transcript \
@@ -484,6 +510,117 @@ curl "https://api.agentphone.to/v1/numbers?limit=20" \
 
 ```bash
 curl -X DELETE https://api.agentphone.to/v1/numbers/NUMBER_ID \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+---
+
+### Contacts
+
+Contacts are your address book — store names, phone numbers, emails, and notes for the people your agents interact with. Each contact is unique per phone number within your account.
+
+#### Create a Contact
+
+```bash
+curl -X POST https://api.agentphone.to/v1/contacts \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "phoneNumber": "+14155559999",
+    "name": "Jane Smith",
+    "email": "jane@example.com",
+    "notes": "Preferred appointment time: mornings"
+  }'
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `phoneNumber` | `string` | Yes | E.164 format phone number |
+| `name` | `string` | Yes | Contact name |
+| `email` | `string` | No | Email address |
+| `notes` | `string` | No | Free-text notes |
+
+**Response:**
+
+```json
+{
+  "id": "ct_abc123",
+  "phoneNumber": "+14155559999",
+  "name": "Jane Smith",
+  "email": "jane@example.com",
+  "notes": "Preferred appointment time: mornings",
+  "createdAt": "2025-01-15T10:30:00.000Z",
+  "updatedAt": "2025-01-15T10:30:00.000Z"
+}
+```
+
+#### List Contacts
+
+```bash
+curl "https://api.agentphone.to/v1/contacts?limit=50" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `limit` | `number` | No | 50 | Max results (1-200) |
+| `offset` | `number` | No | 0 | Pagination offset |
+| `search` | `string` | No | — | Search by name or phone number |
+
+**Response:**
+
+```json
+{
+  "data": [
+    {
+      "id": "ct_abc123",
+      "phoneNumber": "+14155559999",
+      "name": "Jane Smith",
+      "email": "jane@example.com",
+      "notes": "Preferred appointment time: mornings",
+      "createdAt": "2025-01-15T10:30:00.000Z",
+      "updatedAt": "2025-01-15T10:30:00.000Z"
+    }
+  ],
+  "hasMore": false,
+  "total": 1
+}
+```
+
+#### Get a Contact
+
+```bash
+curl https://api.agentphone.to/v1/contacts/CONTACT_ID \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+#### Update a Contact
+
+Only provided fields are updated.
+
+```bash
+curl -X PATCH https://api.agentphone.to/v1/contacts/CONTACT_ID \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Jane Doe",
+    "notes": "Updated: prefers afternoon calls"
+  }'
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `phoneNumber` | `string` | No | New phone number (E.164) |
+| `name` | `string` | No | New name |
+| `email` | `string` | No | New email |
+| `notes` | `string` | No | New notes |
+
+#### Delete a Contact
+
+**Cannot be undone.**
+
+```bash
+curl -X DELETE https://api.agentphone.to/v1/contacts/CONTACT_ID \
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
@@ -1033,9 +1170,94 @@ curl https://api.agentphone.to/v1/calls/CALL_ID/transcript \
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
+#### Stream Call Transcript (SSE)
+
+Stream a call's transcript in real time via Server-Sent Events. On connect, the server replays all existing transcript turns, then streams new turns live as they arrive. Works for both live and completed calls.
+
+```bash
+curl -N https://api.agentphone.to/v1/calls/CALL_ID/transcript/stream \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Accept: text/event-stream"
+```
+
+A heartbeat comment is sent every 15 seconds to keep proxies alive. The stream closes after sending an `ended` event when the call completes.
+
+#### Create a Web Call
+
+Create a browser-based voice call. Returns an access token that your frontend passes to the AgentPhone Web SDK (`agentphone-web-sdk`) to start the call in the browser. The token expires 30 seconds after creation.
+
+```bash
+curl -X POST https://api.agentphone.to/v1/calls/web \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agentId": "agent_abc123",
+    "metadata": {"source": "support-page"}
+  }'
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `agentId` | `string` | Yes | Agent to start the web call with |
+| `metadata` | `object` | No | Optional metadata to attach to the call |
+
+The call lifecycle (transcripts, webhooks) works the same as phone calls.
+
 ---
 
 ### Messages & Conversations
+
+#### Send a Message
+
+Send an outbound SMS (or iMessage where available) from one of your agent's phone numbers.
+
+```bash
+curl -X POST https://api.agentphone.to/v1/messages \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_id": "agent_abc123",
+    "to_number": "+14155559999",
+    "body": "Your appointment is confirmed for Tuesday at 2pm."
+  }'
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `agent_id` | `string` | Yes | Agent to send from (uses its first phone number) |
+| `to_number` | `string` | Yes | Destination phone number (E.164 format) |
+| `body` | `string` | Yes | Message text |
+| `media_url` | `string` | No | URL of media to attach (MMS) |
+| `number_id` | `string` | No | Specific number to send from (if agent has multiple) |
+
+**Response:**
+
+```json
+{
+  "id": "msg_abc123",
+  "status": "sent",
+  "channel": "sms",
+  "from_number": "+14155551234",
+  "to_number": "+14155559999"
+}
+```
+
+#### Send a Reaction
+
+React to a message with an emoji (e.g., tapback on iMessage).
+
+```bash
+curl -X POST https://api.agentphone.to/v1/messages/MESSAGE_ID/reactions \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "reaction": "Liked"
+  }'
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `reaction` | `string` | Yes | Reaction type (e.g., `"Liked"`, `"Loved"`, `"Laughed"`, `"Emphasized"`, `"Questioned"`) |
 
 #### Get Messages for a Number
 
@@ -1110,6 +1332,27 @@ curl "https://api.agentphone.to/v1/conversations/CONVERSATION_ID?messageLimit=50
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `messageLimit` | `number` | No | 50 | Max messages to return (1-100) |
+
+#### Update a Conversation
+
+Store custom metadata on a conversation. Use this to attach context for AI agents — customer info, order IDs, session state, etc. The metadata is included in webhook payloads as `conversationState`.
+
+```bash
+curl -X PATCH https://api.agentphone.to/v1/conversations/CONVERSATION_ID \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "metadata": {
+      "customerName": "Jane Smith",
+      "orderId": "ORD-4521",
+      "topic": "delivery inquiry"
+    }
+  }'
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `metadata` | `object` | No | Arbitrary JSON metadata to store on the conversation |
 
 ---
 

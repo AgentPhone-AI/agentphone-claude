@@ -1,6 +1,6 @@
 # AgentPhone MCP Tools Reference
 
-Complete reference for all 26 MCP tools available through the AgentPhone server.
+Complete reference for all MCP tools available through the AgentPhone server.
 
 ---
 
@@ -45,6 +45,27 @@ Release (delete) a phone number. **Irreversible** — the number returns to the 
 ---
 
 ## Messages
+
+### send_message
+
+Send an outbound SMS (or iMessage where available) from one of your agent's phone numbers.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | string | yes | Agent to send from |
+| `to_number` | string | yes | Destination phone number (E.164) |
+| `body` | string | yes | Message text |
+| `media_url` | string | no | URL of media to attach (MMS) |
+| `number_id` | string | no | Specific number to send from |
+
+### send_reaction
+
+React to a message (e.g., tapback on iMessage).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `message_id` | string | yes | Message ID to react to |
+| `reaction` | string | yes | Reaction type (e.g., "Liked", "Loved", "Laughed", "Emphasized", "Questioned") |
 
 ### get_messages
 
@@ -104,6 +125,23 @@ Place a phone call where the AI holds an autonomous conversation. No webhook req
 | `to_number` | string | yes | E.164 format |
 | `topic` | string | yes | System prompt / conversation topic |
 | `initial_greeting` | string | no | Opening message |
+
+### make_web_call
+
+Create a browser-based web call. Returns an access token for the AgentPhone Web SDK. Token expires after 30 seconds.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | string | yes | Agent to start the web call with |
+| `metadata` | object | no | Optional metadata to attach to the call |
+
+### stream_transcript
+
+Stream a call's transcript in real time via Server-Sent Events. Replays existing turns on connect, then streams new turns live. Works for both live and completed calls.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `call_id` | string | yes | Call ID |
 
 ---
 
@@ -169,6 +207,15 @@ Attach a phone number to an agent.
 | `agent_id` | string | yes | Agent ID |
 | `number_id` | string | yes | Number ID |
 
+### detach_number
+
+Detach a phone number from an agent. The number remains active and can be re-attached to any agent.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | string | yes | Agent ID |
+| `number_id` | string | yes | Number ID |
+
 ### list_voices
 
 List available voices for agents. Use the `voice_id` when calling `create_agent` or `update_agent`.
@@ -195,6 +242,68 @@ Get a specific SMS conversation with message history.
 |-----------|------|----------|---------|-------------|
 | `conversation_id` | string | yes | — | Conversation ID |
 | `message_limit` | number | no | 50 | Max messages (1-100) |
+
+### update_conversation
+
+Update conversation metadata. Store custom context for AI agents (customer info, order IDs, session state). Metadata is included in webhook payloads as `conversationState`.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `conversation_id` | string | yes | Conversation ID |
+| `metadata` | object | no | Arbitrary JSON metadata |
+
+---
+
+## Contacts
+
+### list_contacts
+
+List all contacts in your account. Supports search by name or phone number.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `limit` | number | no | 50 | Max results (1-200) |
+| `offset` | number | no | 0 | Pagination offset |
+| `search` | string | no | — | Search by name or phone number |
+
+### create_contact
+
+Create a new contact. Phone number is normalized to E.164. Returns 409 if a contact with this phone number already exists.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `phone_number` | string | yes | E.164 format phone number |
+| `name` | string | yes | Contact name |
+| `email` | string | no | Email address |
+| `notes` | string | no | Free-text notes |
+
+### get_contact
+
+Get a specific contact by ID.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `contact_id` | string | yes | Contact ID |
+
+### update_contact
+
+Update a contact's fields. Only provided fields are updated.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `contact_id` | string | yes | Contact ID |
+| `phone_number` | string | no | New phone number (E.164) |
+| `name` | string | no | New name |
+| `email` | string | no | New email |
+| `notes` | string | no | New notes |
+
+### delete_contact
+
+Delete a contact. **Cannot be undone.**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `contact_id` | string | yes | Contact ID |
 
 ---
 
