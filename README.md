@@ -13,7 +13,7 @@ Give your AI agents phone numbers, SMS, and voice calls — right from Claude Co
    ```bash
    export AGENTPHONE_API_KEY=your_key_here
    ```
-   Get your API key at [agentphone.to](https://agentphone.to).
+   Get your API key at [agentphone.ai](https://agentphone.ai).
 
 3. Start using it:
    ```
@@ -32,7 +32,7 @@ Give your AI agents phone numbers, SMS, and voice calls — right from Claude Co
 
 ## How it works
 
-This skill connects Claude Code to the [AgentPhone API](https://agentphone.to) via MCP. Your agents can make and receive phone calls, send and read SMS messages, and handle inbound communication through webhooks.
+This skill connects Claude Code to the [AgentPhone API](https://agentphone.ai) via MCP. Your agents can make and receive phone calls, send and read SMS messages, and handle inbound communication through webhooks.
 
 ## Structure
 
