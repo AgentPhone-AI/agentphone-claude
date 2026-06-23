@@ -1,6 +1,6 @@
 ---
 name: agentphone
-version: 0.5.0
+version: 0.6.0
 description: Get your AI agent a real US/Canada phone number in one API call. Make voice calls, send and receive SMS, and hold actual conversations — all via API.
 homepage: https://agentphone.ai
 docs: https://docs.agentphone.ai
@@ -297,6 +297,15 @@ curl -X POST https://api.agentphone.ai/v1/agents \
 | `modelTier` | `"turbo"` \| `"balanced"` \| `"max"` | No | Speed vs. quality tradeoff. Defaults to `"balanced"`. |
 | `transferNumber` | string | No | E.164 number to transfer calls to on request |
 | `voicemailMessage` | string | No | What to say if the callee goes to voicemail |
+| `voiceSpeed` | number | No | Speech speed multiplier, 0.5–2.0. `1.0` is normal. |
+| `interruptionSensitivity` | number | No | How easily callers can interrupt (barge in), 0.0–1.0. Default `0.8`. |
+| `enableBackchannel` | boolean | No | Agent interjects "uh-huh"/"mhmm" while the caller talks. Default `true`. |
+| `enableMessaging` | boolean | No | Hosted agent can send/read texts mid-call. Default `true`. |
+| `sttMode` | `"fast"` \| `"accurate"` | No | Transcription mode. `"fast"` (default) for latency, `"accurate"` for exact names/numbers. |
+| `ambientSound` | string | No | Background ambience: `none`, `office`, `coffee-shop`, `outdoor`. |
+| `denoisingMode` | string | No | `noise-cancellation` (default) or `noise-and-background-speech-cancellation` (noisy callers; small surcharge). |
+| `maxSilenceMs` | number | No | Hang up after this many ms of caller silence. Default `600000` (10 min). |
+| `language` | string | No | BCP-47 locale for speech, e.g. `en-US`, `es-ES`, `ja-JP`. |
 
 #### Update an agent
 
@@ -373,11 +382,11 @@ curl -X DELETE https://api.agentphone.ai/v1/numbers/NUMBER_ID \
 
 ---
 
-### Messages (SMS)
+### Messages (SMS & iMessage)
 
-Send and receive SMS. Messages thread automatically into conversations.
+Send and receive texts. The platform delivers over **iMessage** automatically when the recipient and your number both support it, and falls back to **SMS/MMS** otherwise — same endpoint either way. The `channel` on the response (`sms`, `mms`, or `imessage`) tells you how it actually went out. iMessage unlocks threaded replies, send effects, reactions, and group chats (all below); on SMS those extras are silently ignored. Messages thread automatically into conversations.
 
-#### Send an SMS
+#### Send a message
 
 ```bash
 curl -X POST https://api.agentphone.ai/v1/messages \
@@ -393,10 +402,66 @@ curl -X POST https://api.agentphone.ai/v1/messages \
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `agent_id` | string | Yes | The agent sending. Must have a phone number attached. |
-| `to_number` | string | Yes | Recipient phone, E.164 |
-| `body` | string | Yes | Message text |
-| `media_url` | string | No | URL of an image/file to attach (MMS) |
+| `to_number` | string | Yes | Recipient phone (E.164), or a group ID (`grp_...`) for an iMessage group chat |
+| `body` | string | Yes | Message text (may be empty if sending media only) |
+| `media_url` | string | No | URL of a single image/file to attach |
+| `media_urls` | string[] | No | Multiple media URLs (image carousel on iMessage) |
 | `number_id` | string | No | Specific number to send from, if the agent has several |
+| `from_number` | string | No | Exact number to send from (E.164), alternative to `number_id` |
+| `reply_to_message_id` | string | No | iMessage only — reply inline to an earlier message (threading) |
+| `send_style` | string | No | iMessage only — send effect (see below) |
+
+#### Threaded replies (iMessage)
+
+Set `reply_to_message_id` to an earlier message's `id` to reply inline, so it renders threaded under the original. The response carries `reply_parent_unresolved: true` if the parent could not be threaded (e.g. it was an SMS) — the message still sends, just not threaded.
+
+```bash
+curl -X POST https://api.agentphone.ai/v1/messages \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "AGENT_ID", "to_number": "+14155559999", "body": "Yes, Thursday works.", "reply_to_message_id": "msg_001"}'
+```
+
+#### Send effects (iMessage)
+
+Set `send_style` for an expressive screen or bubble effect. Use sparingly — best for confirmations and celebratory moments.
+
+`slam`, `loud`, `gentle`, `invisible` (invisible ink), `confetti`, `balloons`, `fireworks`, `celebration`, `lasers`, `spotlight`, `echo`, `love`
+
+```bash
+curl -X POST https://api.agentphone.ai/v1/messages \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "AGENT_ID", "to_number": "+14155559999", "body": "You are all set!", "send_style": "confetti"}'
+```
+
+#### Reactions (iMessage)
+
+React to a message with a tapback. iMessage only — returns `400` on SMS.
+
+```bash
+curl -X POST https://api.agentphone.ai/v1/messages/MESSAGE_ID/reactions \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"reaction": "love"}'
+```
+
+`reaction` is one of: `love`, `like`, `dislike`, `laugh`, `emphasize`, `question`.
+
+#### Group chats (iMessage)
+
+When your number is in an iMessage group, inbound messages arrive on your webhook with `data.group` (the roster + `groupId`) and `data.senderIdentifier` (who sent it). One-to-one messages omit both, so the presence of `data.group` is a reliable "is this a group?" check.
+
+To post into the group, send to the **`groupId`** (`grp_...`), not an individual member — sending to a member starts a separate one-to-one with them:
+
+```bash
+curl -X POST https://api.agentphone.ai/v1/messages \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "AGENT_ID", "to_number": "grp_abc123", "body": "Friday at 7 works for me!"}'
+```
+
+Threaded replies and send effects work in groups too.
 
 #### List messages for a number
 
@@ -427,6 +492,75 @@ Each conversation is a thread between your number and one external contact.
 
 ```bash
 curl https://api.agentphone.ai/v1/conversations/CONVERSATION_ID \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+#### Typing indicator (iMessage)
+
+Show a typing bubble before you reply. Best-effort, auto-expires — no "stop" call needed.
+
+```bash
+curl -X POST https://api.agentphone.ai/v1/conversations/CONVERSATION_ID/typing \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" -d '{}'
+```
+
+#### Chat background (iMessage)
+
+Set or clear a background image for a conversation.
+
+```bash
+# Set
+curl -X POST https://api.agentphone.ai/v1/conversations/CONVERSATION_ID/background \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"image_url": "https://example.com/bg.jpg"}'
+
+# Clear
+curl -X DELETE https://api.agentphone.ai/v1/conversations/CONVERSATION_ID/background \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+---
+
+### Contacts
+
+A simple address book — save the people you talk to so you can look them up by name later.
+
+#### List contacts
+
+```bash
+curl "https://api.agentphone.ai/v1/contacts?search=jane&limit=50" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+#### Create a contact
+
+```bash
+curl -X POST https://api.agentphone.ai/v1/contacts \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"phoneNumber": "+14155559999", "name": "Jane Doe", "email": "jane@example.com"}'
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `phoneNumber` | string | Yes | Contact phone, E.164 |
+| `name` | string | Yes | Contact name |
+| `email` | string | No | Email address |
+| `notes` | string | No | Freeform notes |
+
+#### Update / delete a contact
+
+```bash
+# Update — only the fields you send change
+curl -X PATCH https://api.agentphone.ai/v1/contacts/CONTACT_ID \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"notes": "Prefers texts over calls"}'
+
+# Delete — confirm with your human first
+curl -X DELETE https://api.agentphone.ai/v1/contacts/CONTACT_ID \
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
