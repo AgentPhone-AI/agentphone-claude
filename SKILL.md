@@ -1,6 +1,6 @@
 ---
 name: agentphone
-version: 0.6.0
+version: 0.6.1
 description: Get your AI agent a real US/Canada phone number in one API call. Make voice calls, send and receive SMS, and hold actual conversations — all via API.
 homepage: https://agentphone.ai
 docs: https://docs.agentphone.ai
@@ -486,7 +486,7 @@ curl https://api.agentphone.ai/v1/agents/AGENT_ID/conversations \
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
-Each conversation is a thread between your number and one external contact.
+Each conversation is a thread between your number and one external contact, or an iMessage group chat (see Group chats above).
 
 #### Get a conversation with messages
 
