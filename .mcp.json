@@ -1,12 +1,8 @@
 {
   "mcpServers": {
     "agentphone": {
-      "command": "npx",
-      "args": ["-y", "agentphone-mcp"],
-      "env": {
-        "AGENTPHONE_API_KEY": "${AGENTPHONE_API_KEY}",
-        "AGENTPHONE_BASE_URL": "https://api.agentphone.ai"
-      }
+      "type": "http",
+      "url": "https://mcp.agentphone.ai/mcp"
     }
   }
 }
