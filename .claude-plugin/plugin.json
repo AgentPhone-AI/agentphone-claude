@@ -1,12 +1,12 @@
 {
   "name": "agentphone",
-  "version": "0.1.0",
+  "version": "0.7.0",
   "description": "Give AI agents phone numbers, SMS, and voice calls. Skills for making calls, managing numbers, reading messages, and more.",
   "author": {
     "name": "AgentPhone",
-    "email": "hello@agentphone.to"
+    "email": "founders@agentphone.ai"
   },
-  "homepage": "https://agentphone.to",
+  "homepage": "https://agentphone.ai",
   "repository": "https://github.com/AgentPhone-AI/agentphone-claude",
   "license": "MIT",
   "keywords": ["telephony", "phone", "sms", "voice", "calls", "agentphone"]

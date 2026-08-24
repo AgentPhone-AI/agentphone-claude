@@ -9,11 +9,9 @@ Give your AI agents phone numbers, SMS, and voice calls — right from Claude Co
    npx skills.sh install agentphone
    ```
 
-2. Set your API key:
-   ```bash
-   export AGENTPHONE_API_KEY=your_key_here
-   ```
-   Get your API key at [agentphone.ai](https://agentphone.ai).
+2. Authenticate. Two options:
+   - **MCP (recommended):** the skill connects to the hosted server at `https://mcp.agentphone.ai/mcp` and you sign in through your browser (OAuth) — no key to paste.
+   - **API key:** `export AGENTPHONE_API_KEY=your_key_here` (get one at [agentphone.ai](https://agentphone.ai)). Used for the REST path and scripted MCP use.
 
 3. Start using it:
    ```
@@ -37,9 +35,11 @@ This skill connects Claude Code to the [AgentPhone API](https://agentphone.ai) v
 ## Structure
 
 ```
-SKILL.md              # Main skill definition
+SKILL.md              # Entry point: onboarding, quick start, capabilities
 references/
-  api-reference.md    # Complete MCP tool reference (26 tools)
+  rest-api.md         # Complete REST API reference (every HTTP endpoint)
+  mcp-tools.md        # The 28 MCP tools
+.mcp.json             # Hosted MCP server config
 ```
 
 ## License
