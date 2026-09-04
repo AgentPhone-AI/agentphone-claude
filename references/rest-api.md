@@ -267,7 +267,7 @@ Get / partial-update (duplicate phone → `409`) / delete (**204**).
 
 ## Usage — `/v1/usage`
 
-Pay-as-you-go — no per-month message or minute caps. `numbers.limit` is a self-serve hold limit (default 10).
+Pay-as-you-go — no per-month message or minute caps. `numbers.limit` is the account's self-serve hold limit; read it from the response rather than assuming a fixed number (contact us to raise it).
 
 ### GET /v1/usage
 Summary: `{numbers: {used, limit, remaining}, stats: {totalMessages, messagesLast24h/7d/30d, smsSegmentsLast30d, totalCalls, callsLast24h/7d/30d, totalWebhookDeliveries, successfulWebhookDeliveries, failedWebhookDeliveries}, periodStart, periodEnd}`. (There is no `plan` block.)
